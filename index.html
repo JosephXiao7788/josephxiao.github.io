@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物理挑战：SpaceX 火箭回收</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #020617;
+            color: white;
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 60vh;
+            background: linear-gradient(to bottom, #020617 0%, #0f172a 100%);
+            border-bottom: 8px solid #334155;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        #rocket {
+            position: absolute;
+            width: 30px;
+            height: 80px;
+            z-index: 10;
+        }
+        .rocket-body {
+            width: 100%;
+            height: 100%;
+            background: #e2e8f0;
+            border-radius: 4px 4px 2px 2px;
+            position: relative;
+            border: 1px solid #94a3b8;
+        }
+        .rocket-window {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 10px;
+            height: 10px;
+            background: #38bdf8;
+            border-radius: 50%;
+        }
+        .fin {
+            position: absolute;
+            bottom: 0;
+            width: 15px;
+            height: 20px;
+            background: #475569;
+        }
+        .fin-left { left: -10px; clip-path: polygon(100% 0, 0 100%, 100% 100%); }
+        .fin-right { right: -10px; clip-path: polygon(0 0, 0 100%, 100% 100%); }
+        
+        .flame {
+            position: absolute;
+            bottom: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            background: linear-gradient(to bottom, #fb7185, #f59e0b, transparent);
+            border-radius: 0 0 50% 50%;
+            display: none;
+            filter: blur(2px);
+            animation: flicker 0.1s infinite;
+        }
+        @keyframes flicker {
+            0% { height: 25px; opacity: 0.8; }
+            50% { height: 35px; opacity: 1; }
+            100% { height: 25px; opacity: 0.8; }
+        }
+        .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+        }
+        #football {
+            position: absolute;
+            font-size: 24px;
+            display: none;
+            z-index: 20;
+        }
+        /* 遮罩层样式 */
+        #overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center p-4">
+
+    <div class="text-center mb-4">
+        <h1 class="text-3xl font-black text-white tracking-tighter italic">SPACEX <span class="text-blue-500">LANDING</span></h1>
+        <p class="text-xs text-gray-500 uppercase tracking-widest">利用第一性原理 挑战软着陆</p>
+    </div>
+
+    <div id="game-container" class="rounded-xl shadow-[0_0_50px_rgba(30,58,138,0.5)] border border-slate-800">
+        <!-- 准备界面 -->
+        <div id="overlay">
+            <h2 class="text-xl font-bold mb-4">准备好着陆了吗？</h2>
+            <button id="start-btn" class="px-10 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-bold shadow-lg transition-all transform hover:scale-105">
+                开始任务 (GO)
+            </button>
+            <p class="text-[10px] text-gray-400 mt-4 text-center">操作指南：按住屏幕或空格键喷火减速<br>降落速度需小于 2.0</p>
+        </div>
+
+        <div id="stars-layer"></div>
+        <div id="football">⚽</div>
+
+        <div id="rocket" style="left: calc(50% - 15px); top: 50px;">
+            <div class="rocket-body">
+                <div class="rocket-window"></div>
+                <div class="fin fin-left"></div>
+                <div class="fin fin-right"></div>
+            </div>
+            <div id="flame" class="flame"></div>
+        </div>
+        
+        <div id="pad" class="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-3 bg-slate-700 flex justify-around items-end">
+            <div class="w-1/3 h-1 bg-yellow-500"></div>
+            <div class="w-1/3 h-1 bg-yellow-500"></div>
+            <span class="absolute -top-6 text-[10px] font-bold text-slate-500 italic">OF COURSE I STILL LOVE YOU</span>
+        </div>
+    </div>
+
+    <div class="mt-4 grid grid-cols-3 gap-2 w-full max-lg">
+        <div class="bg-slate-900 p-2 rounded border border-slate-800 text-center">
+            <div class="text-[10px] text-gray-500">速度 (V)</div>
+            <div id="speed-display" class="text-lg font-mono font-bold">0.0</div>
+        </div>
+        <div class="bg-slate-900 p-2 rounded border border-slate-800 text-center">
+            <div class="text-[10px] text-gray-500">高度 (H)</div>
+            <div id="height-display" class="text-lg font-mono font-bold">0</div>
+        </div>
+        <div class="bg-slate-900 p-2 rounded border border-slate-800 text-center">
+            <div class="text-[10px] text-gray-500">燃料 (FUEL)</div>
+            <div class="w-full bg-gray-700 h-1.5 mt-2 rounded-full overflow-hidden">
+                <div id="fuel-bar" class="bg-blue-500 h-full w-full"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4 flex gap-4">
+        <button id="reset-btn" class="hidden px-8 py-2 bg-white text-black rounded font-bold uppercase text-sm hover:bg-blue-400 transition">重启系统</button>
+    </div>
+
+    <div class="mt-6 w-full max-w-lg space-y-3">
+        <div class="p-4 bg-blue-950/20 border-l-4 border-blue-500 rounded">
+            <h3 class="font-bold text-blue-400 text-sm">💡 物理实验室观察：</h3>
+            <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+                <span class="text-white">重力减弱：</span> 我调小了重力参数（现在是 0.08），模拟在引力较小的星球上着陆，给你更多反应时间。
+                <br>
+                <span class="text-white">合力 (Net Force)：</span> 当你喷火时，合力 = 推力 - 重力。因为合力变小了，你的速度改变（加速度）会更平缓，不会猛冲猛掉。
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const rocket = document.getElementById('rocket');
+        const flame = document.getElementById('flame');
+        const speedDisplay = document.getElementById('speed-display');
+        const heightDisplay = document.getElementById('height-display');
+        const fuelBar = document.getElementById('fuel-bar');
+        const resetBtn = document.getElementById('reset-btn');
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('overlay');
+        const container = document.getElementById('game-container');
+        const football = document.getElementById('football');
+
+        // 核心物理引擎参数（已调优，更慢、更丝滑）
+        const GRAVITY_CONSTANT = 0.08;          
+        const THRUST = 0.22;    // 推力也相应调小，保持手感
+        let currentVelocity = 0; 
+        let currentPosY = 50;    
+        let fuelAmount = 100;    
+        let isThrustActive = false;
+        let isGameOverStatus = false;
+        let isGameStarted = false; // 新增：控制游戏是否开始
+
+        function initStars() {
+            const layer = document.getElementById('stars-layer');
+            for (let i = 0; i < 80; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                const size = Math.random() * 2;
+                star.style.width = size + 'px';
+                star.style.height = size + 'px';
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.opacity = Math.random();
+                layer.appendChild(star);
+            }
+        }
+
+        function gameLoop() {
+            if (isGameOverStatus || !isGameStarted) return;
+
+            // 1. 物理计算
+            currentVelocity += GRAVITY_CONSTANT; 
+
+            if (isThrustActive && fuelAmount > 0) {
+                currentVelocity -= THRUST; 
+                fuelAmount -= 0.4; // 燃料消耗也稍微调慢
+                flame.style.display = 'block';
+            } else {
+                flame.style.display = 'none';
+            }
+
+            currentPosY += currentVelocity;
+
+            // 2. 边界判定
+            const limitPos = container.offsetHeight - 80 - 8; 
+            
+            if (currentPosY < 0) { currentPosY = 0; currentVelocity = 0; }
+            if (currentPosY >= limitPos) {
+                currentPosY = limitPos;
+                processEndGame();
+            }
+
+            // 3. 渲染UI
+            rocket.style.top = currentPosY + 'px';
+            speedDisplay.innerText = currentVelocity.toFixed(1);
+            heightDisplay.innerText = Math.round(limitPos - currentPosY);
+            fuelBar.style.width = fuelAmount + '%';
+            
+            speedDisplay.style.color = currentVelocity > 2.0 ? '#f87171' : '#4ade80';
+            if (fuelAmount < 20) fuelBar.style.backgroundColor = '#ef4444';
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function processEndGame() {
+            isGameOverStatus = true;
+            flame.style.display = 'none';
+            resetBtn.classList.remove('hidden');
+            
+            if (currentVelocity < 2.2) {
+                rocket.style.filter = "drop-shadow(0 0 15px #4ade80)";
+                football.style.display = 'block';
+                football.style.left = (parseInt(rocket.style.left) + 40) + 'px';
+                football.style.bottom = '10px';
+                setTimeout(() => alert("🏅 完美着陆！你对合力的控制非常精准！"), 100);
+            } else {
+                rocket.style.transform = "rotate(45deg)";
+                rocket.style.filter = "sepia(1) saturate(5) hue-rotate(-50deg)";
+                setTimeout(() => alert("💥 坠毁！速度太快了。尝试更早开始喷火！"), 100);
+            }
+        }
+
+        function startGame() {
+            isGameStarted = true;
+            overlay.style.display = 'none';
+            gameLoop();
+        }
+
+        function resetSimulation() {
+            currentVelocity = 0; currentPosY = 50; fuelAmount = 100;
+            isGameOverStatus = false;
+            isThrustActive = false;
+            rocket.style.transform = "rotate(0deg)";
+            rocket.style.filter = "none";
+            football.style.display = 'none';
+            fuelBar.style.backgroundColor = '#3b82f6';
+            resetBtn.classList.add('hidden');
+            overlay.style.display = 'flex';
+            isGameStarted = false;
+        }
+
+        // 控制逻辑
+        const handlePress = () => { if(isGameStarted) isThrustActive = true; };
+        const handleRelease = () => isThrustActive = false;
+
+        window.onkeydown = (e) => { if(e.code === 'Space') handlePress(); };
+        window.onkeyup = (e) => { if(e.code === 'Space') handleRelease(); };
+        container.onmousedown = handlePress;
+        container.onmouseup = handleRelease;
+        container.ontouchstart = (e) => { e.preventDefault(); handlePress(); };
+        container.ontouchend = handleRelease;
+        
+        startBtn.onclick = startGame;
+        resetBtn.onclick = resetSimulation;
+
+        initStars();
+    </script>
+</body>
+</html>
