@@ -17,6 +17,7 @@
             align-items: center;
             height: 100vh;
             user-select: none;
+            touch-action: none;
         }
 
         #game-container {
@@ -33,6 +34,7 @@
             display: block;
             width: 100%;
             height: 100%;
+            cursor: crosshair;
         }
 
         #ui-layer {
@@ -99,27 +101,6 @@
 
         .hidden { display: none !important; }
 
-        /* Circuit specific styles */
-        .circuit-grid {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 2px;
-            width: 400px;
-            height: 400px;
-            margin: 0 auto;
-            pointer-events: auto;
-        }
-        
-        /* Indicators */
-        .indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        .bg-red { background-color: #ef4444; box-shadow: 0 0 8px #ef4444; }
-        .bg-green { background-color: #22c55e; box-shadow: 0 0 8px #22c55e; }
         .text-cyan { color: #22d3ee; }
         .text-orange { color: #fb923c; }
 
@@ -130,7 +111,6 @@
 <div id="game-container">
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     
-    <!-- UI Layer for HUD -->
     <div id="ui-layer">
         <div id="top-hud">
             <div id="status-bar" class="hud-text">
@@ -145,7 +125,7 @@
                 <div>
                     <div>燃料 (FUEL)</div>
                     <div style="width: 200px; height: 10px; background: #334155; margin-top: 5px;">
-                        <div id="fuel-bar" style="width: 100%; height: 100%; background: #22c55e; transition: width 0.1s;"></div>
+                        <div id="fuel-bar" style="width: 100%; height: 100%; background: #22c55e;"></div>
                     </div>
                 </div>
                 <div>
@@ -160,24 +140,21 @@
         </div>
     </div>
 
-    <!-- Start/End Screens -->
     <div id="message-overlay">
-        <h1 id="msg-title">轨道工程师</h1>
+        <h1 id="msg-title">轨道工程师 v1.1</h1>
         <p id="msg-desc">
-            欢迎来到发射中心。作为首席工程师，你的任务分两步：<br>
-            1. <strong>航电组装</strong>：调整电路板，将电源连接到点火器。<br>
-            2. <strong>发射控制</strong>：控制火箭升空，按住 [空格] 推进，使用 [←/→] 保持平衡。<br>
+            航电系统已升级。姿态阻尼已加强。<br>
             <br>
-            目标：将载荷送入 10,000米 轨道。
+            <strong>操作建议</strong>：<br>
+            1. 保持火箭完全垂直（0°），减少余弦损失。<br>
+            2. 不要过度修正，轻点左右两侧调整姿态。<br>
+            3. 燃料耗尽前必须达到 10,000 米。
         </p>
         <button id="action-btn">开始任务</button>
     </div>
 </div>
 
 <script>
-/**
- * Game State Management
- */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const uiStageText = document.getElementById('stage-text');
@@ -191,27 +168,17 @@ const fuelBar = document.getElementById('fuel-bar');
 const altText = document.getElementById('altitude-text');
 const velText = document.getElementById('velocity-text');
 
-// Game constants
-const STATE = {
-    MENU: 0,
-    CIRCUIT: 1,
-    COUNTDOWN: 2,
-    LAUNCH: 3,
-    GAMEOVER: 4
-};
-
+const STATE = { MENU: 0, CIRCUIT: 1, COUNTDOWN: 2, LAUNCH: 3, GAMEOVER: 4 };
 let currentState = STATE.MENU;
 let frameId = null;
 let lastTime = 0;
 
-// Input handling
-const keys = {
-    Space: false,
-    ArrowLeft: false,
-    ArrowRight: false
-};
+const keys = { Space: false, ArrowLeft: false, ArrowRight: false };
+let isPointerDown = false;
+let pointerX = 0;
 
 window.addEventListener('keydown', (e) => {
+    if (["Space", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
     if (e.code === 'Space') keys.Space = true;
     if (e.code === 'ArrowLeft') keys.ArrowLeft = true;
     if (e.code === 'ArrowRight') keys.ArrowRight = true;
@@ -223,165 +190,102 @@ window.addEventListener('keyup', (e) => {
     if (e.code === 'ArrowRight') keys.ArrowRight = false;
 });
 
-// Mouse input for circuit phase
-canvas.addEventListener('mousedown', handleMouseClick);
+function handleInputStart(e) {
+    if (currentState === STATE.LAUNCH) {
+        isPointerDown = true;
+        updatePointerPos(e);
+        if(e.type.startsWith('touch')) e.preventDefault(); 
+    }
+    handleMouseClick(e);
+}
 
-// -----------------------------------------------------
-// PHASE 1: CIRCUIT PUZZLE LOGIC
-// -----------------------------------------------------
+function handleInputEnd(e) { isPointerDown = false; }
+function handleInputMove(e) {
+    if (isPointerDown) {
+        updatePointerPos(e);
+        if(e.type.startsWith('touch')) e.preventDefault();
+    }
+}
+
+function updatePointerPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    pointerX = clientX - rect.left;
+}
+
+canvas.addEventListener('mousedown', handleInputStart);
+window.addEventListener('mouseup', handleInputEnd);
+canvas.addEventListener('mousemove', handleInputMove);
+canvas.addEventListener('touchstart', handleInputStart, {passive: false});
+window.addEventListener('touchend', handleInputEnd);
+canvas.addEventListener('touchmove', handleInputMove, {passive: false});
+
+// --- Phase 1: Circuit ---
 const GRID_SIZE = 6;
-const TILE_SIZE = 80; // Scaled for 480px grid inside 800x600
+const TILE_SIZE = 80;
 const OFFSET_X = (800 - (GRID_SIZE * TILE_SIZE)) / 2;
 const OFFSET_Y = (600 - (GRID_SIZE * TILE_SIZE)) / 2;
-
-// Tile types: 
-// 1: Straight (Left-Right)
-// 2: Corner (Left-Bottom)
-// 3: T-Shape (Left-Right-Bottom)
-// 4: Cross (All)
-// 0: Empty
-// Special: 10 (Start/Power), 11 (End/Igniter)
-
 let circuitGrid = [];
 let isCircuitSolved = false;
-const circuitColors = {
-    bg: '#1e293b',
-    line: '#475569',
-    power: '#fbbf24', // Amber when powered
-    off: '#334155'
-};
 
 function initCircuit() {
     isCircuitSolved = false;
     circuitGrid = [];
-    
-    // Generate a solvable path first (Simplified Depth First generation)
-    // For simplicity in this demo, we use a fixed layout but randomize rotations
-    // Map layout: S = Start, E = End, x = wire
-    // S - - - - .
-    // . . - - . .
-    // . . | . . .
-    // . - - . . .
-    // . | . . . .
-    // . - - - - E
-    
-    // Let's create a grid of objects
     for(let y=0; y<GRID_SIZE; y++) {
         let row = [];
         for(let x=0; x<GRID_SIZE; x++) {
-            // Default random tiles
             let type = Math.random() > 0.7 ? 2 : 1; 
-            if (Math.random() > 0.8) type = 3;
-            
-            row.push({
-                x: x, y: y,
-                type: type,
-                rotation: Math.floor(Math.random() * 4), // 0, 1, 2, 3 (x90 deg)
-                powered: false
-            });
+            row.push({ x: x, y: y, type: type, rotation: Math.floor(Math.random() * 4), powered: false });
         }
         circuitGrid.push(row);
     }
-
-    // Set Start (0,0) and End (5,5)
-    circuitGrid[0][0] = { x:0, y:0, type: 10, rotation: 0, powered: true }; // Battery
-    circuitGrid[GRID_SIZE-1][GRID_SIZE-1] = { x:GRID_SIZE-1, y:GRID_SIZE-1, type: 11, rotation: 0, powered: false }; // Igniter
-
-    // Force a "good" set of tiles in a path so it's solvable
-    // Simple path: (0,0)->(1,0)->(2,0)->(2,1)->(2,2)->(3,2)->(4,2)->(4,3)->(4,4)->(4,5)->(5,5)
-    // We overwrite the types at these positions to ensure connectivity is possible
-    const path = [
-        {x:0,y:0,t:10}, {x:1,y:0,t:1}, {x:2,y:0,t:2}, // 2 needs to turn Right-Bottom
-        {x:2,y:1,t:1}, // vertical
-        {x:2,y:2,t:2}, // Bottom-Right
-        {x:3,y:2,t:1}, 
-        {x:4,y:2,t:2}, // Left-Bottom
-        {x:4,y:3,t:1}, // Vertical
-        {x:4,y:4,t:2}, // Top-Right
-        {x:5,y:4,t:2}, // Left-Bottom
-        {x:5,y:5,t:11}
-    ];
-
-    // Just randomize the rotations of everything, user has to fix it
+    circuitGrid[0][0] = { x:0, y:0, type: 10, rotation: 0, powered: true };
+    circuitGrid[GRID_SIZE-1][GRID_SIZE-1] = { x:GRID_SIZE-1, y:GRID_SIZE-1, type: 11, rotation: 0, powered: false };
     checkCircuitConnectivity();
 }
 
 function handleMouseClick(e) {
     if (currentState !== STATE.CIRCUIT) return;
-
+    let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    let clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
 
-    // Check if inside grid
     if (mx >= OFFSET_X && mx <= OFFSET_X + GRID_SIZE * TILE_SIZE &&
         my >= OFFSET_Y && my <= OFFSET_Y + GRID_SIZE * TILE_SIZE) {
-        
         const gx = Math.floor((mx - OFFSET_X) / TILE_SIZE);
         const gy = Math.floor((my - OFFSET_Y) / TILE_SIZE);
-
-        // Rotate tile (except start/end)
         const tile = circuitGrid[gy][gx];
         if (tile.type !== 10 && tile.type !== 11) {
             tile.rotation = (tile.rotation + 1) % 4;
             checkCircuitConnectivity();
-            
-            if (isCircuitSolved) {
-                setTimeout(() => {
-                    currentState = STATE.COUNTDOWN;
-                    startCountdown();
-                }, 500);
-            }
+            if (isCircuitSolved) setTimeout(startCountdown, 500);
         }
     }
 }
 
-// Check which tiles are powered via BFS
 function checkCircuitConnectivity() {
-    // Reset power
-    for(let y=0; y<GRID_SIZE; y++) {
-        for(let x=0; x<GRID_SIZE; x++) {
-            circuitGrid[y][x].powered = false;
-        }
-    }
-    
-    // Start is always powered
+    circuitGrid.forEach(row => row.forEach(t => t.powered = false));
     let startNode = circuitGrid[0][0];
     startNode.powered = true;
-    
     let queue = [startNode];
-    let visited = new Set();
-    visited.add(`0,0`);
-
+    let visited = new Set(['0,0']);
     isCircuitSolved = false;
 
     while(queue.length > 0) {
         let curr = queue.shift();
-        
-        // Check neighbor connectivity
-        const dirs = [
-            { dx: 0, dy: -1, side: 0 }, // Top
-            { dx: 1, dy: 0,  side: 1 }, // Right
-            { dx: 0, dy: 1,  side: 2 }, // Bottom
-            { dx: -1, dy: 0, side: 3 }  // Left
-        ];
-
+        const dirs = [{ dx: 0, dy: -1, s: 0 }, { dx: 1, dy: 0, s: 1 }, { dx: 0, dy: 1, s: 2 }, { dx: -1, dy: 0, s: 3 }];
         for (let d of dirs) {
-            let nx = curr.x + d.dx;
-            let ny = curr.y + d.dy;
-
+            let nx = curr.x + d.dx, ny = curr.y + d.dy;
             if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) {
                 let neighbor = circuitGrid[ny][nx];
                 if (!visited.has(`${nx},${ny}`)) {
-                    // Does current tile output to this side?
-                    if (canConnect(curr, d.side) && canConnect(neighbor, (d.side + 2) % 4)) {
+                    if (canConnect(curr, d.s) && canConnect(neighbor, (d.s + 2) % 4)) {
                         neighbor.powered = true;
                         visited.add(`${nx},${ny}`);
                         queue.push(neighbor);
-
-                        if (neighbor.type === 11) {
-                            isCircuitSolved = true;
-                        }
+                        if (neighbor.type === 11) isCircuitSolved = true;
                     }
                 }
             }
@@ -389,385 +293,137 @@ function checkCircuitConnectivity() {
     }
 }
 
-// Helper: Does tile connect to a specific side (0=Top, 1=Right, 2=Bottom, 3=Left) taking rotation into account?
-// Base shapes defined as pointing:
-// Line: Left-Right (sides 1, 3)
-// Corner: Left-Bottom (sides 3, 2)
-// T: Left-Right-Bottom (sides 1, 2, 3)
 function canConnect(tile, side) {
-    // Adjust side based on rotation (counter-rotation logic)
-    // If tile is rotated 1 (90deg cw), its "Top" is now "Right". 
-    // So if we ask "Does it connect Right (1)?", we check base shape at (1 - 1 = 0) Top.
-    let baseSide = (side - tile.rotation + 4) % 4;
-    
-    if (tile.type === 10) return true; // Battery connects everywhere
-    if (tile.type === 11) return true; // Igniter connects everywhere
-
-    // 1: Straight (Left 3, Right 1)
-    if (tile.type === 1) return baseSide === 1 || baseSide === 3;
-    // 2: Corner (Left 3, Bottom 2)
-    if (tile.type === 2) return baseSide === 3 || baseSide === 2;
-    // 3: T-Shape (Left 3, Bottom 2, Right 1)
-    if (tile.type === 3) return baseSide === 3 || baseSide === 2 || baseSide === 1;
-    // 4: Cross
-    if (tile.type === 4) return true;
-
+    let b = (side - tile.rotation + 4) % 4;
+    if (tile.type >= 10) return true;
+    if (tile.type === 1) return b === 1 || b === 3;
+    if (tile.type === 2) return b === 3 || b === 2;
     return false;
 }
 
 function drawCircuit() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw Grid Background
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(0,0, canvas.width, canvas.height);
-
     ctx.textAlign = "center";
     ctx.fillStyle = "#94a3b8";
     ctx.font = "20px monospace";
-    ctx.fillText("任务 1: 连接点火电路 (点击模块旋转)", canvas.width/2, 50);
+    ctx.fillText("任务 1: 连接点火电路", canvas.width/2, 50);
 
     for(let y=0; y<GRID_SIZE; y++) {
         for(let x=0; x<GRID_SIZE; x++) {
             let tile = circuitGrid[y][x];
-            let px = OFFSET_X + x * TILE_SIZE;
-            let py = OFFSET_Y + y * TILE_SIZE;
-
-            // Draw Tile bg
+            let px = OFFSET_X + x * TILE_SIZE, py = OFFSET_Y + y * TILE_SIZE;
             ctx.strokeStyle = '#334155';
-            ctx.lineWidth = 1;
             ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
-
-            // Draw Wire
             ctx.save();
             ctx.translate(px + TILE_SIZE/2, py + TILE_SIZE/2);
             ctx.rotate(tile.rotation * Math.PI / 2);
-
-            let color = tile.powered ? circuitColors.power : circuitColors.line;
-            let glow = tile.powered ? 10 : 0;
-            
-            ctx.strokeStyle = color;
+            ctx.strokeStyle = tile.powered ? '#fbbf24' : '#475569';
             ctx.lineWidth = 8;
-            ctx.lineCap = 'round';
-            ctx.shadowBlur = glow;
-            ctx.shadowColor = color;
-
             ctx.beginPath();
-
-            if (tile.type === 1) { // Straight
-                ctx.moveTo(-30, 0); ctx.lineTo(30, 0);
-            } else if (tile.type === 2) { // Corner (Left to Bottom)
-                ctx.moveTo(-30, 0); ctx.lineTo(0,0); ctx.lineTo(0, 30);
-            } else if (tile.type === 3) { // T
-                ctx.moveTo(-30, 0); ctx.lineTo(30,0); 
-                ctx.moveTo(0,0); ctx.lineTo(0,30);
-            } else if (tile.type === 10) { // Battery
-                ctx.fillStyle = '#ef4444';
-                ctx.fillRect(-20, -20, 40, 40);
-                ctx.fillStyle = '#fff';
-                ctx.font = '20px Arial';
-                ctx.fillText('⚡', 0, 8);
-            } else if (tile.type === 11) { // Igniter
-                ctx.fillStyle = tile.powered ? '#22c55e' : '#64748b';
-                ctx.beginPath();
-                ctx.arc(0,0, 20, 0, Math.PI*2);
-                ctx.fill();
-            }
-
+            if (tile.type === 1) { ctx.moveTo(-30, 0); ctx.lineTo(30, 0); }
+            else if (tile.type === 2) { ctx.moveTo(-30, 0); ctx.lineTo(0,0); ctx.lineTo(0, 30); }
+            else if (tile.type === 10) { ctx.fillStyle = '#ef4444'; ctx.fillRect(-20, -20, 40, 40); }
+            else if (tile.type === 11) { ctx.fillStyle = tile.powered ? '#22c55e' : '#64748b'; ctx.arc(0,0, 20, 0, Math.PI*2); ctx.fill(); }
             ctx.stroke();
             ctx.restore();
         }
     }
 }
 
-// -----------------------------------------------------
-// PHASE 2: ROCKET PHYSICS LOGIC
-// -----------------------------------------------------
-let rocket = {
-    y: 0, // Altitude relative to ground (0 is ground)
-    vy: 0,
-    angle: 0, // in degrees
-    va: 0, // angular velocity
-    fuel: 100,
-    x: 400 // Screen X position
-};
-
-// Physics constants
-const GRAVITY = 9.8; 
-const THRUST_POWER = 25; 
-const ROTATION_SPEED = 2;
-const MAX_FUEL = 100;
-const SCALE = 10; // Pixels per meter (visually)
-
-// Particles
+// --- Phase 2: Launch ---
+let rocket = { y: 0, vy: 0, angle: 0, va: 0, fuel: 100, x: 400 };
+const GRAVITY = 9.8, THRUST = 26, ROT_SPEED = 2.5, SCALE = 10;
 let particles = [];
 
-function initLaunch() {
-    rocket = { y: 0, vy: 0, angle: 0, va: 0, fuel: 100, x: 400 };
-    particles = [];
-    bottomHud.classList.remove('hidden');
-    uiStageText.textContent = "阶段: 升空";
-    uiInfoText.textContent = "按住 [空格] 点火";
-}
-
 function updatePhysics(dt) {
-    if (rocket.fuel <= 0) keys.Space = false;
+    const inputThrust = (keys.Space || isPointerDown);
+    const inputLeft = keys.ArrowLeft || (isPointerDown && pointerX < 300);
+    const inputRight = keys.ArrowRight || (isPointerDown && pointerX > 500);
 
-    // Forces
-    let thrust = 0;
-    if (keys.Space && rocket.fuel > 0) {
-        thrust = THRUST_POWER;
-        rocket.fuel -= 15 * dt;
-        
-        // Spawn particles
-        for(let i=0; i<5; i++) {
-            particles.push({
-                x: rocket.x + (Math.random()-0.5)*10,
-                y: 400 + 40, // Base of rocket visual
-                vx: (Math.random()-0.5)*2 - Math.sin(rocket.angle * Math.PI/180)*5,
-                vy: 5 + Math.random()*5 + Math.cos(rocket.angle * Math.PI/180)*5,
-                life: 1.0
-            });
-        }
+    let thrustForce = 0;
+    if (inputThrust && rocket.fuel > 0) {
+        thrustForce = THRUST;
+        rocket.fuel -= 12 * dt; // 稍微降低了燃料消耗率
+        for(let i=0; i<3; i++) particles.push({ x: rocket.x, y: 440, vx: (Math.random()-0.5)*4, vy: 5+Math.random()*5, life: 1 });
     }
 
-    // Angular control (Vectoring/Fins)
-    if (keys.ArrowLeft) rocket.va -= ROTATION_SPEED * dt;
-    if (keys.ArrowRight) rocket.va += ROTATION_SPEED * dt;
+    if (inputLeft) rocket.va -= ROT_SPEED * dt;
+    if (inputRight) rocket.va += ROT_SPEED * dt;
     
-    // Stabilize/Dampen rotation naturally
-    rocket.va *= 0.95;
+    // 增加自动纠偏阻尼，帮助玩家保持垂直
+    rocket.va *= 0.92; 
     rocket.angle += rocket.va;
 
-    // Angle limits (Crash if tipped too far)
-    if (Math.abs(rocket.angle) > 60 && rocket.y > 10) {
-        endGame(false, "火箭姿态失控！");
-        return;
-    }
+    if (Math.abs(rocket.angle) > 55 && rocket.y > 50) return endGame(false, "姿态倾角过大，导致结构解体！");
 
-    // Physics
-    // Vertical acceleration depends on Thrust vertical component and Gravity
     let rad = rocket.angle * Math.PI / 180;
-    let ay = (thrust * Math.cos(rad)) - GRAVITY;
-    
-    // Horizontal drift
-    let ax = (thrust * Math.sin(rad));
+    let ay = (thrustForce * Math.cos(rad)) - GRAVITY;
+    let ax = (thrustForce * Math.sin(rad));
 
     rocket.vy += ay * dt;
-    rocket.x += ax * dt * 5; // Simplified horizontal movement
+    rocket.x += ax * dt * 10;
     rocket.y += rocket.vy * dt * SCALE;
 
-    // Ground collision
-    if (rocket.y < 0) {
-        rocket.y = 0;
-        if (rocket.vy < -20) {
-             endGame(false, "发射失败：坠毁");
-             return;
-        }
-        rocket.vy = 0;
-    }
+    if (rocket.y < 0) { rocket.y = 0; if (rocket.vy < -20) return endGame(false, "坠毁在发射台！"); rocket.vy = 0; }
+    if (rocket.y > 10000) return endGame(true, "任务成功！入轨达成。");
 
-    // Win condition
-    if (rocket.y > 10000) { // 10000 "units" height
-        endGame(true, "任务成功！轨道入轨完成。");
-    }
-
-    // Update HUD
     fuelBar.style.width = Math.max(0, rocket.fuel) + "%";
     altText.textContent = Math.floor(rocket.y) + " m";
     velText.textContent = Math.floor(rocket.vy*10)/10 + " m/s";
-    
-    // Particles update
-    for (let i = particles.length - 1; i >= 0; i--) {
-        let p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= dt * 2;
-        if (p.life <= 0) particles.splice(i, 1);
-    }
+    particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= dt*2; if(p.life <= 0) particles.splice(i,1); });
 }
 
 function drawLaunch() {
-    // Sky gradient based on altitude
-    let brightness = Math.max(0, 40 - rocket.y / 200);
-    ctx.fillStyle = `rgb(${brightness}, ${brightness*1.5}, ${brightness*2 + 20})`;
+    let b = Math.max(0, 40 - rocket.y / 250);
+    ctx.fillStyle = `rgb(${b}, ${b*1.2}, ${b*1.8 + 15})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Stars (simple parralax)
-    ctx.fillStyle = "#FFF";
-    for(let i=0; i<50; i++) {
-        let sy = (Math.sin(i)*1000 + canvas.height) + (rocket.y * 0.1) % canvas.height; 
-        // Wrap stars
-        sy = (sy % canvas.height + canvas.height) % canvas.height;
-        ctx.fillRect((Math.cos(i)*1000)%canvas.width, sy, 2, 2);
-    }
-
-    // Ground
-    let groundY = 400 + rocket.y; // As rocket goes up, ground goes down
-    if (groundY < canvas.height) {
-        ctx.fillStyle = "#334155";
-        ctx.fillRect(0, groundY + 50, canvas.width, canvas.height); // Platform
-        ctx.fillStyle = "#0f172a"; // Earth
-        ctx.fillRect(0, groundY + 60, canvas.width, canvas.height); 
-    }
-
-    // Draw Rocket
-    // Rocket is fixed in screen Y center mostly, world moves around it?
-    // Let's keep rocket centered Y=400 visually usually, but if on ground, it sits there.
-    let visualY = 400;
-    if (rocket.y < 200) {
-        visualY = 400 + (200 - rocket.y); // Sit on ground
-    } else {
-        visualY = 400; // Locked center
-    }
-
     ctx.save();
-    ctx.translate(rocket.x, visualY);
+    ctx.translate(rocket.x, 400);
     ctx.rotate(rocket.angle * Math.PI / 180);
-
-    // Rocket Body
     ctx.fillStyle = "#e2e8f0";
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 15, 60, 0, 0, Math.PI*2);
-    ctx.fill();
-    
-    // Fins
+    ctx.beginPath(); ctx.ellipse(0, 0, 12, 50, 0, 0, Math.PI*2); ctx.fill(); // Rocket body
     ctx.fillStyle = "#ef4444";
-    ctx.beginPath();
-    ctx.moveTo(-15, 40);
-    ctx.lineTo(-25, 60);
-    ctx.lineTo(-10, 50);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(15, 40);
-    ctx.lineTo(25, 60);
-    ctx.lineTo(10, 50);
-    ctx.fill();
-
-    // Window
-    ctx.fillStyle = "#38bdf8";
-    ctx.beginPath();
-    ctx.arc(0, -20, 8, 0, Math.PI*2);
-    ctx.fill();
-
+    ctx.beginPath(); ctx.moveTo(-12, 30); ctx.lineTo(-20, 50); ctx.lineTo(-10, 45); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(12, 30); ctx.lineTo(20, 50); ctx.lineTo(10, 45); ctx.fill();
     ctx.restore();
 
-    // Draw Particles
-    particles.forEach(p => {
-        ctx.fillStyle = `rgba(255, ${150 + Math.random()*100}, 0, ${p.life})`;
-        // Adjust particle pos based on camera shift
-        let pY = p.y;
-        if (rocket.y >= 200) {
-            pY = p.y + (rocket.y - 200); // Shift down as we fly up... wait logic is tricky with fixed cam
-            // Let's cheat: particles are drawn relative to rocket visual pos in update
-            // Actually, physics update sets X/Y relative to screen for simplicity in this proto
-        }
-        
-        // Simpler particle draw relative to screen center logic
-        // If rocket is at `visualY`, exhaust is there.
-        // Let's just draw relative to rocket:
-        // (Moved particle generation to be purely visual in draw loop would be easier, but sticking to physics loop)
-        // Re-calculating particle draw pos:
-        // P represents world coord? No, P is screen coord.
-        // If rocket moves up (world), particles should move down (screen).
-        // Since we lock camera, we simulate this by adding vy to particles in update?
-        // Simpler: Just draw them relative to current rocket Visual position.
-        
-        ctx.beginPath();
-        ctx.arc(p.x, p.y + (visualY - 400) , 4 + p.life*4, 0, Math.PI*2);
-        ctx.fill();
-    });
+    particles.forEach(p => { ctx.fillStyle = `rgba(255,100,0,${p.life})`; ctx.beginPath(); ctx.arc(p.x, p.y, 3+p.life*5, 0, Math.PI*2); ctx.fill(); });
 }
-
-// -----------------------------------------------------
-// MAIN LOOP
-// -----------------------------------------------------
 
 function gameLoop(timestamp) {
     if (!lastTime) lastTime = timestamp;
     const dt = (timestamp - lastTime) / 1000;
     lastTime = timestamp;
-
-    if (currentState === STATE.CIRCUIT) {
-        drawCircuit();
-    } 
-    else if (currentState === STATE.COUNTDOWN) {
-        // Handled by timeout mostly, but keep rendering circuit or clear
-        ctx.fillStyle = "rgba(0,0,0,0.1)";
-        ctx.fillRect(0,0,canvas.width, canvas.height);
-        ctx.fillStyle = "white";
-        ctx.font = "60px Arial";
-        ctx.textAlign = "center";
-        // ctx.fillText("...", canvas.width/2, canvas.height/2);
-    }
-    else if (currentState === STATE.LAUNCH) {
-        updatePhysics(dt);
-        drawLaunch();
-    }
-
-    if (currentState !== STATE.GAMEOVER) {
-        frameId = requestAnimationFrame(gameLoop);
-    }
+    if (currentState === STATE.CIRCUIT) drawCircuit();
+    else if (currentState === STATE.LAUNCH) { updatePhysics(dt); drawLaunch(); }
+    if (currentState !== STATE.GAMEOVER) frameId = requestAnimationFrame(gameLoop);
 }
 
-// -----------------------------------------------------
-// FLOW CONTROL
-// -----------------------------------------------------
-
-function startGame() {
-    overlay.classList.add('hidden');
-    currentState = STATE.CIRCUIT;
-    initCircuit();
-    uiStageText.textContent = "阶段 1: 航电电路";
-    uiInfoText.textContent = "点击旋转线路，接通电源";
-    requestAnimationFrame(gameLoop);
-}
-
+function startGame() { overlay.classList.add('hidden'); currentState = STATE.CIRCUIT; initCircuit(); requestAnimationFrame(gameLoop); }
 function startCountdown() {
-    let count = 3;
-    uiStageText.textContent = "阶段 2: 准备发射";
-    uiInfoText.textContent = "系统自检完成";
-    
-    // Simple overlay countdown
-    const cdInterval = setInterval(() => {
-        ctx.clearRect(0,0,canvas.width, canvas.height);
-        ctx.fillStyle = "#1e293b";
-        ctx.fillRect(0,0,canvas.width, canvas.height);
-        ctx.fillStyle = "#38bdf8";
-        ctx.font = "120px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText(count, canvas.width/2, canvas.height/2);
-        
-        count--;
-        if (count < 0) {
-            clearInterval(cdInterval);
-            currentState = STATE.LAUNCH;
-            initLaunch();
-        }
-    }, 1000);
+    currentState = STATE.COUNTDOWN;
+    let c = 3;
+    const timer = setInterval(() => {
+        ctx.fillStyle = "#1e293b"; ctx.fillRect(0,0,800,600);
+        ctx.fillStyle = "#38bdf8"; ctx.font = "100px Arial"; ctx.textAlign="center";
+        ctx.fillText(c, 400, 300);
+        c--;
+        if (c < 0) { clearInterval(timer); currentState = STATE.LAUNCH; rocket = { y: 0, vy: 0, angle: 0, va: 0, fuel: 100, x: 400 }; bottomHud.classList.remove('hidden'); }
+    }, 800);
 }
 
-function endGame(success, message) {
+function endGame(s, m) {
     currentState = STATE.GAMEOVER;
-    cancelAnimationFrame(frameId);
-    
     overlay.classList.remove('hidden');
-    msgTitle.textContent = success ? "任务完成" : "任务中止";
-    msgTitle.style.color = success ? "#22c55e" : "#ef4444";
-    msgDesc.innerHTML = `${message}<br><br>${success ? "遥测数据正常，卫星已入轨。" : "检查故障原因，重新尝试。"}`;
-    actionBtn.textContent = "重试任务";
-    
-    actionBtn.onclick = () => {
-        // Reset
-        location.reload(); 
-        // Or simpler reset:
-        // currentState = STATE.MENU;
-        // startGame();
-    };
+    msgTitle.textContent = s ? "入轨成功" : "任务失败";
+    msgTitle.style.color = s ? "#22c55e" : "#ef4444";
+    msgDesc.innerHTML = `${m}<br>最终高度: ${Math.floor(rocket.y)} m`;
+    actionBtn.onclick = () => location.reload();
 }
 
 actionBtn.addEventListener('click', startGame);
-
 </script>
 </body>
 </html>
